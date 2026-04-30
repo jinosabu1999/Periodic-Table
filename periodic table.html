@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arena Web Dev App - Periodic Table</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style type="text/tailwindcss">
+    @layer base {
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: #020617;
+      }
+      button, input {
+        font: inherit;
+      }
+    }
+    
+    @layer utilities {
+      .filter-panel {
+        animation: panel-rise 520ms ease-out both;
+      }
+      .periodic-shell {
+        animation: table-rise 680ms 90ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      .quiz-panel {
+        animation: panel-rise 620ms 160ms ease-out both;
+      }
+      .periodic-tile {
+        animation: tile-arrive 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        transform-origin: center;
+      }
+      .periodic-tile::before {
+        background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+        content: "";
+        inset: 0;
+        opacity: 0;
+        position: absolute;
+        transform: translateX(-120%);
+      }
+      .periodic-tile:hover:not(:disabled) {
+        transform: translateY(-4px) scale(1.045);
+        z-index: 10;
+      }
+      .periodic-tile:hover:not(:disabled)::before {
+        animation: tile-shine 700ms ease-out;
+        opacity: 1;
+      }
+      .modal-panel {
+        animation: modal-in 180ms ease-out both;
+      }
+      .quiz-answer[data-result="correct"] {
+        animation: answer-pop 260ms ease-out;
+      }
+      .quiz-answer[data-result="wrong"] {
+        animation: answer-shake 280ms ease-in-out;
+      }
+    }
+
+    @keyframes panel-rise {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes table-rise {
+      from { opacity: 0; transform: translateY(24px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes tile-arrive {
+      from { opacity: 0; transform: translateY(10px) scale(0.94); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes tile-shine {
+      from { transform: translateX(-120%); }
+      to { transform: translateX(120%); }
+    }
+    @keyframes modal-in {
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes answer-pop {
+      0% { transform: scale(1); }
+      55% { transform: scale(1.025); }
+      100% { transform: scale(1); }
+    }
+    @keyframes answer-shake {
+      0%, 100% { transform: translateX(0); }
+      30% { transform: translateX(-4px); }
+      60% { transform: translateX(4px); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 1ms !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100 overflow-x-hidden antialiased">
+  <main class="relative min-h-screen overflow-x-hidden pb-12">
+    <!-- Background -->
+    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.24),transparent_34%),radial-gradient(circle_at_80%_15%,rgba(168,85,247,0.2),transparent_30%),linear-gradient(180deg,rgba(15,23,42,0),rgba(2,6,23,0.92))]"></div>
+
+    <div class="relative mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+      
+      <!-- Header -->
+      <header class="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-3xl space-y-2">
+          <p class="text-sm font-semibold uppercase tracking-[0.45em] text-cyan-200/80">Periodic Lab</p>
+          <h1 class="text-4xl font-black tracking-tight text-white sm:text-6xl">Interactive Periodic Table</h1>
+          <p class="max-w-2xl text-base leading-7 text-slate-300">
+            Explore all 118 elements, filter by family or phase, open detailed element notes, and test your memory in the quiz.
+          </p>
+        </div>
+        <div class="flex items-center gap-3 text-sm text-slate-300">
+          <span class="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(103,232,249,0.9)]"></span>
+          <span id="header-match-count">118</span> of 118 elements in view
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <section class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]" aria-label="Periodic table workspace">
+        <div class="min-w-0 space-y-4">
+          
+          <!-- Filter Panel -->
+          <section class="filter-panel rounded-3xl border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-slate-950/20 backdrop-blur" aria-label="Element filters">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <label class="relative block min-w-0 flex-1">
+                <span class="sr-only">Search elements</span>
+                <input id="search-input" class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10" placeholder="Search by name, symbol, or atomic number" />
+              </label>
+              <div id="phase-filters" class="flex flex-wrap items-center gap-2 text-sm"></div>
+            </div>
+            <div id="category-filters" class="mt-4 flex flex-wrap gap-2"></div>
+            <div class="mt-3 flex flex-col gap-2 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <span><span id="filter-match-count">118</span> matching elements remain active on the table.</span>
+              <button id="reset-btn" class="w-fit rounded-full px-3 py-1.5 font-semibold text-cyan-200 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:text-slate-600" disabled>
+                Reset filters
+              </button>
+            </div>
+          </section>
+
+          <!-- Periodic Table -->
+          <section class="periodic-shell overflow-x-auto rounded-3xl border border-white/10 bg-slate-950/50 p-3 shadow-2xl shadow-slate-950/30 backdrop-blur" aria-label="Complete periodic table">
+            <div id="periodic-table" class="grid gap-1.5" style="min-width: 1180px; grid-template-columns: repeat(18, minmax(0, 1fr)); grid-template-rows: 1.7rem repeat(9, 4.6rem);">
+              <!-- Top column numbers -->
+            </div>
+          </section>
+        </div>
+
+        <!-- Quiz Panel Container -->
+        <div id="quiz-container"></div>
+      </section>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="fixed inset-0 z-50 items-center justify-center bg-slate-950/78 p-4 backdrop-blur-md hidden" role="presentation">
+      <section class="modal-panel w-full max-w-3xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl shadow-black/60" role="dialog" aria-modal="true" aria-labelledby="element-modal-title">
+        <div class="grid gap-0 md:grid-cols-[240px_1fr] max-h-[85vh] overflow-y-auto">
+          <div id="modal-left" class="relative min-h-[16rem] p-6">
+            <p id="modal-atomic-number" class="text-sm font-bold uppercase tracking-[0.35em] opacity-80"></p>
+            <div class="mt-10">
+              <p id="modal-symbol" class="text-8xl font-black tracking-tighter"></p>
+              <h2 id="modal-title" class="mt-2 text-3xl font-black text-white"></h2>
+            </div>
+            <p id="modal-description" class="absolute bottom-6 left-6 right-6 text-sm font-medium leading-6 text-white/75"></p>
+          </div>
+          <div class="p-6 sm:p-8">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-semibold uppercase tracking-[0.28em] text-slate-500">Profile</p>
+                <p id="modal-category-label" class="mt-2 text-2xl font-black text-white"></p>
+              </div>
+              <button id="close-modal-btn" class="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-slate-300 transition hover:border-white/30 hover:text-white focus:outline-none focus:ring-4 focus:ring-cyan-300/10">X</button>
+            </div>
+            <dl class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Atomic mass</dt><dd id="modal-mass" class="mt-1 text-sm font-bold text-white"></dd></div>
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Group</dt><dd id="modal-group" class="mt-1 text-sm font-bold text-white"></dd></div>
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Period</dt><dd id="modal-period" class="mt-1 text-sm font-bold text-white"></dd></div>
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Phase</dt><dd id="modal-phase" class="mt-1 text-sm font-bold text-white"></dd></div>
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Category</dt><dd id="modal-category" class="mt-1 text-sm font-bold text-white"></dd></div>
+              <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><dt class="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-slate-500">Position</dt><dd id="modal-position" class="mt-1 text-sm font-bold text-white"></dd></div>
+            </dl>
+            <div class="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+              <p class="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-200">Study note</p>
+              <p id="modal-note" class="mt-3 leading-7 text-slate-300"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // --- Data Definition ---
+    const CATEGORY_ORDER =[
+      "alkali metal", "alkaline earth metal", "transition metal", "post-transition metal",
+      "metalloid", "nonmetal", "halogen", "noble gas", "lanthanide", "actinide"
+    ];
+
+    const CATEGORY_META = {
+      "alkali metal": { label: "Alkali metal", bg: "#f97316", text: "#fff7ed", soft: "rgba(249, 115, 22, 0.18)", description: "Highly reactive metals in group 1, excluding hydrogen." },
+      "alkaline earth metal": { label: "Alkaline earth metal", bg: "#eab308", text: "#422006", soft: "rgba(234, 179, 8, 0.18)", description: "Reactive group 2 metals that form common mineral compounds." },
+      "transition metal": { label: "Transition metal", bg: "#2563eb", text: "#eff6ff", soft: "rgba(37, 99, 235, 0.18)", description: "Dense metallic elements with flexible oxidation states." },
+      "post-transition metal": { label: "Post-transition metal", bg: "#64748b", text: "#f8fafc", soft: "rgba(100, 116, 139, 0.2)", description: "Softer metals placed to the right of the transition metals." },
+      "metalloid": { label: "Metalloid", bg: "#16a34a", text: "#f0fdf4", soft: "rgba(22, 163, 74, 0.18)", description: "Elements with a mix of metallic and nonmetallic behavior." },
+      "nonmetal": { label: "Reactive nonmetal", bg: "#0891b2", text: "#ecfeff", soft: "rgba(8, 145, 178, 0.18)", description: "Light elements that tend to gain or share electrons." },
+      "halogen": { label: "Halogen", bg: "#c026d3", text: "#fdf4ff", soft: "rgba(192, 38, 211, 0.18)", description: "Group 17 elements known for forming salts." },
+      "noble gas": { label: "Noble gas", bg: "#7c3aed", text: "#f5f3ff", soft: "rgba(124, 58, 237, 0.18)", description: "Group 18 elements with very low reactivity." },
+      "lanthanide": { label: "Lanthanide", bg: "#0d9488", text: "#f0fdfa", soft: "rgba(13, 148, 136, 0.18)", description: "Rare earth metals that fill the 4f orbital series." },
+      "actinide": { label: "Actinide", bg: "#db2777", text: "#fdf2f8", soft: "rgba(219, 39, 119, 0.18)", description: "Heavy radioactive metals in the 5f orbital series." },
+    };
+
+    const LIQUID_SYMBOLS = new Set(["Br", "Hg"]);
+    const GAS_SYMBOLS = new Set(["H", "He", "N", "O", "F", "Ne", "Cl", "Ar", "Kr", "Xe", "Rn"]);
+    const PHASE_OPTIONS =["all", "solid", "liquid", "gas"];
+
+    const element = (atomicNumber, symbol, name, atomicMass, category, x, y) => ({
+      atomicNumber, symbol, name, atomicMass, category, x, y,
+      group: y <= 7 ? x : null,
+      period: y <= 7 ? y : y === 8 ? 6 : 7,
+    });
+
+    const ELEMENTS =[
+      element(1, "H", "Hydrogen", "1.008", "nonmetal", 1, 1),
+      element(2, "He", "Helium", "4.0026", "noble gas", 18, 1),
+      element(3, "Li", "Lithium", "6.94", "alkali metal", 1, 2),
+      element(4, "Be", "Beryllium", "9.0122", "alkaline earth metal", 2, 2),
+      element(5, "B", "Boron", "10.81", "metalloid", 13, 2),
+      element(6, "C", "Carbon", "12.011", "nonmetal", 14, 2),
+      element(7, "N", "Nitrogen", "14.007", "nonmetal", 15, 2),
+      element(8, "O", "Oxygen", "15.999", "nonmetal", 16, 2),
+      element(9, "F", "Fluorine", "18.998", "halogen", 17, 2),
+      element(10, "Ne", "Neon", "20.180", "noble gas", 18, 2),
+      element(11, "Na", "Sodium", "22.990", "alkali metal", 1, 3),
+      element(12, "Mg", "Magnesium", "24.305", "alkaline earth metal", 2, 3),
+      element(13, "Al", "Aluminum", "26.982", "post-transition metal", 13, 3),
+      element(14, "Si", "Silicon", "28.085", "metalloid", 14, 3),
+      element(15, "P", "Phosphorus", "30.974", "nonmetal", 15, 3),
+      element(16, "S", "Sulfur", "32.06", "nonmetal", 16, 3),
+      element(17, "Cl", "Chlorine", "35.45", "halogen", 17, 3),
+      element(18, "Ar", "Argon", "39.948", "noble gas", 18, 3),
+      element(19, "K", "Potassium", "39.098", "alkali metal", 1, 4),
+      element(20, "Ca", "Calcium", "40.078", "alkaline earth metal", 2, 4),
+      element(21, "Sc", "Scandium", "44.956", "transition metal", 3, 4),
+      element(22, "Ti", "Titanium", "47.867", "transition metal", 4, 4),
+      element(23, "V", "Vanadium", "50.942", "transition metal", 5, 4),
+      element(24, "Cr", "Chromium", "51.996", "transition metal", 6, 4),
+      element(25, "Mn", "Manganese", "54.938", "transition metal", 7, 4),
+      element(26, "Fe", "Iron", "55.845", "transition metal", 8, 4),
+      element(27, "Co", "Cobalt", "58.933", "transition metal", 9, 4),
+      element(28, "Ni", "Nickel", "58.693", "transition metal", 10, 4),
+      element(29, "Cu", "Copper", "63.546", "transition metal", 11, 4),
+      element(30, "Zn", "Zinc", "65.38", "transition metal", 12, 4),
+      element(31, "Ga", "Gallium", "69.723", "post-transition metal", 13, 4),
+      element(32, "Ge", "Germanium", "72.630", "metalloid", 14, 4),
+      element(33, "As", "Arsenic", "74.922", "metalloid", 15, 4),
+      element(34, "Se", "Selenium", "78.971", "nonmetal", 16, 4),
+      element(35, "Br", "Bromine", "79.904", "halogen", 17, 4),
+      element(36, "Kr", "Krypton", "83.798", "noble gas", 18, 4),
+      element(37, "Rb", "Rubidium", "85.468", "alkali metal", 1, 5),
+      element(38, "Sr", "Strontium", "87.62", "alkaline earth metal", 2, 5),
+      element(39, "Y", "Yttrium", "88.906", "transition metal", 3, 5),
+      element(40, "Zr", "Zirconium", "91.224", "transition metal", 4, 5),
+      element(41, "Nb", "Niobium", "92.906", "transition metal", 5, 5),
+      element(42, "Mo", "Molybdenum", "95.95", "transition metal", 6, 5),
+      element(43, "Tc", "Technetium", "[98]", "transition metal", 7, 5),
+      element(44, "Ru", "Ruthenium", "101.07", "transition metal", 8, 5),
+      element(45, "Rh", "Rhodium", "102.91", "transition metal", 9, 5),
+      element(46, "Pd", "Palladium", "106.42", "transition metal", 10, 5),
+      element(47, "Ag", "Silver", "107.87", "transition metal", 11, 5),
+      element(48, "Cd", "Cadmium", "112.41", "transition metal", 12, 5),
+      element(49, "In", "Indium", "114.82", "post-transition metal", 13, 5),
+      element(50, "Sn", "Tin", "118.71", "post-transition metal", 14, 5),
+      element(51, "Sb", "Antimony", "121.76", "metalloid", 15, 5),
+      element(52, "Te", "Tellurium", "127.60", "metalloid", 16, 5),
+      element(53, "I", "Iodine", "126.90", "halogen", 17, 5),
+      element(54, "Xe", "Xenon", "131.29", "noble gas", 18, 5),
+      element(55, "Cs", "Cesium", "132.91", "alkali metal", 1, 6),
+      element(56, "Ba", "Barium", "137.33", "alkaline earth metal", 2, 6),
+      element(57, "La", "Lanthanum", "138.91", "lanthanide", 3, 6),
+      element(58, "Ce", "Cerium", "140.12", "lanthanide", 4, 8),
+      element(59, "Pr", "Praseodymium", "140.91", "lanthanide", 5, 8),
+      element(60, "Nd", "Neodymium", "144.24", "lanthanide", 6, 8),
+      element(61, "Pm", "Promethium", "[145]", "lanthanide", 7, 8),
+      element(62, "Sm", "Samarium", "150.36", "lanthanide", 8, 8),
+      element(63, "Eu", "Europium", "151.96", "lanthanide", 9, 8),
+      element(64, "Gd", "Gadolinium", "157.25", "lanthanide", 10, 8),
+      element(65, "Tb", "Terbium", "158.93", "lanthanide", 11, 8),
+      element(66, "Dy", "Dysprosium", "162.50", "lanthanide", 12, 8),
+      element(67, "Ho", "Holmium", "164.93", "lanthanide", 13, 8),
+      element(68, "Er", "Erbium", "167.26", "lanthanide", 14, 8),
+      element(69, "Tm", "Thulium", "168.93", "lanthanide", 15, 8),
+      element(70, "Yb", "Ytterbium", "173.05", "lanthanide", 16, 8),
+      element(71, "Lu", "Lutetium", "174.97", "lanthanide", 17, 8),
+      element(72, "Hf", "Hafnium", "178.49", "transition metal", 4, 6),
+      element(73, "Ta", "Tantalum", "180.95", "transition metal", 5, 6),
+      element(74, "W", "Tungsten", "183.84", "transition metal", 6, 6),
+      element(75, "Re", "Rhenium", "186.21", "transition metal", 7, 6),
+      element(76, "Os", "Osmium", "190.23", "transition metal", 8, 6),
+      element(77, "Ir", "Iridium", "192.22", "transition metal", 9, 6),
+      element(78, "Pt", "Platinum", "195.08", "transition metal", 10, 6),
+      element(79, "Au", "Gold", "196.97", "transition metal", 11, 6),
+      element(80, "Hg", "Mercury", "200.59", "transition metal", 12, 6),
+      element(81, "Tl", "Thallium", "204.38", "post-transition metal", 13, 6),
+      element(82, "Pb", "Lead", "207.2", "post-transition metal", 14, 6),
+      element(83, "Bi", "Bismuth", "208.98", "post-transition metal", 15, 6),
+      element(84, "Po", "Polonium", "[209]", "post-transition metal", 16, 6),
+      element(85, "At", "Astatine", "[210]", "halogen", 17, 6),
+      element(86, "Rn", "Radon", "[222]", "noble gas", 18, 6),
+      element(87, "Fr", "Francium", "[223]", "alkali metal", 1, 7),
+      element(88, "Ra", "Radium", "[226]", "alkaline earth metal", 2, 7),
+      element(89, "Ac", "Actinium", "[227]", "actinide", 3, 7),
+      element(90, "Th", "Thorium", "232.04", "actinide", 4, 9),
+      element(91, "Pa", "Protactinium", "231.04", "actinide", 5, 9),
+      element(92, "U", "Uranium", "238.03", "actinide", 6, 9),
+      element(93, "Np", "Neptunium", "[237]", "actinide", 7, 9),
+      element(94, "Pu", "Plutonium", "[244]", "actinide", 8, 9),
+      element(95, "Am", "Americium", "[243]", "actinide", 9, 9),
+      element(96, "Cm", "Curium", "[247]", "actinide", 10, 9),
+      element(97, "Bk", "Berkelium", "[247]", "actinide", 11, 9),
+      element(98, "Cf", "Californium", "[251]", "actinide", 12, 9),
+      element(99, "Es", "Einsteinium", "[252]", "actinide", 13, 9),
+      element(100, "Fm", "Fermium", "[257]", "actinide", 14, 9),
+      element(101, "Md", "Mendelevium", "[258]", "actinide", 15, 9),
+      element(102, "No", "Nobelium", "[259]", "actinide", 16, 9),
+      element(103, "Lr", "Lawrencium", "[266]", "actinide", 17, 9),
+      element(104, "Rf", "Rutherfordium", "[267]", "transition metal", 4, 7),
+      element(105, "Db", "Dubnium", "[268]", "transition metal", 5, 7),
+      element(106, "Sg", "Seaborgium", "[269]", "transition metal", 6, 7),
+      element(107, "Bh", "Bohrium", "[270]", "transition metal", 7, 7),
+      element(108, "Hs", "Hassium", "[277]", "transition metal", 8, 7),
+      element(109, "Mt", "Meitnerium", "[278]", "transition metal", 9, 7),
+      element(110, "Ds", "Darmstadtium", "[281]", "transition metal", 10, 7),
+      element(111, "Rg", "Roentgenium", "[282]", "transition metal", 11, 7),
+      element(112, "Cn", "Copernicium", "[285]", "transition metal", 12, 7),
+      element(113, "Nh", "Nihonium", "[286]", "post-transition metal", 13, 7),
+      element(114, "Fl", "Flerovium", "[289]", "post-transition metal", 14, 7),
+      element(115, "Mc", "Moscovium", "[290]", "post-transition metal", 15, 7),
+      element(116, "Lv", "Livermorium", "[293]", "post-transition metal", 16, 7),
+      element(117, "Ts", "Tennessine", "[294]", "halogen", 17, 7),
+      element(118, "Og", "Oganesson", "[294]", "noble gas", 18, 7),
+    ];
+
+    // --- State Variables ---
+    const state = {
+      query: "",
+      categoryFilter: "all",
+      phaseFilter: "all",
+      selectedElement: null,
+      quiz: {
+        question: null,
+        selectedAnswer: null,
+        score: 0,
+        asked: 0,
+        streak: 0
+      }
+    };
+
+    const tileElements = {};
+
+    // --- Helper Functions ---
+    function getPhase(symbol) {
+      if (LIQUID_SYMBOLS.has(symbol)) return "liquid";
+      if (GAS_SYMBOLS.has(symbol)) return "gas";
+      return "solid";
+    }
+
+    function getArticlePhrase(label) {
+      return /^[aeiou]/i.test(label) ? `an ${label}` : `a ${label}`;
+    }
+
+    function getPhaseLabel(phase) {
+      return phase === "all" ? "All phases" : `${phase[0].toUpperCase()}${phase.slice(1)}s`;
+    }
+
+    function getElementNote(elementData) {
+      const categoryLabel = CATEGORY_META[elementData.category].label.toLowerCase();
+      const location = elementData.group
+        ? `group ${elementData.group}`
+        : `the f-block row tied to period ${elementData.period}`;
+      const massNote = elementData.atomicMass.startsWith("[")
+        ? "The bracketed mass marks a longest-lived isotope value."
+        : `Its standard atomic mass is ${elementData.atomicMass} u.`;
+      return `${elementData.name} sits in period ${elementData.period} and ${location}. It is classified as ${getArticlePhrase(
+        categoryLabel,
+      )} and is usually ${getArticlePhrase(getPhase(elementData.symbol))} at room temperature. ${massNote}`;
+    }
+
+    function pickRandom(items) {
+      return items[Math.floor(Math.random() * items.length)];
+    }
+
+    function shuffle(items) {
+      return [...items].sort(() => Math.random() - 0.5);
+    }
+
+    function buildChoices(correct, candidates) {
+      const wrongChoices = shuffle(candidates.filter(c => c !== correct)).slice(0, 3);
+      return shuffle([correct, ...wrongChoices]);
+    }
+
+    function buildQuizQuestion() {
+      const quizElement = pickRandom(ELEMENTS);
+      const quizMode = pickRandom(["nameFromSymbol", "symbolFromName", "nameFromNumber", "categoryPick"]);
+      const categoryLabel = CATEGORY_META[quizElement.category].label;
+
+      if (quizMode === "symbolFromName") {
+        return {
+          prompt: `Which symbol belongs to ${quizElement.name}?`,
+          answer: quizElement.symbol,
+          choices: buildChoices(quizElement.symbol, ELEMENTS.map(item => item.symbol)),
+          detail: `${quizElement.name} uses the symbol ${quizElement.symbol} and has atomic number ${quizElement.atomicNumber}.`,
+          element: quizElement,
+        };
+      }
+      if (quizMode === "nameFromNumber") {
+        return {
+          prompt: `Atomic number ${quizElement.atomicNumber} belongs to which element?`,
+          answer: quizElement.name,
+          choices: buildChoices(quizElement.name, ELEMENTS.map(item => item.name)),
+          detail: `${quizElement.name} is element ${quizElement.atomicNumber} and sits in period ${quizElement.period}.`,
+          element: quizElement,
+        };
+      }
+      if (quizMode === "categoryPick") {
+        return {
+          prompt: `Which category describes ${quizElement.name}?`,
+          answer: categoryLabel,
+          choices: buildChoices(categoryLabel, CATEGORY_ORDER.map(cat => CATEGORY_META[cat].label)),
+          detail: `${quizElement.name} is ${getArticlePhrase(categoryLabel.toLowerCase())}.`,
+          element: quizElement,
+        };
+      }
+      return {
+        prompt: `Which element has the symbol ${quizElement.symbol}?`,
+        answer: quizElement.name,
+        choices: buildChoices(quizElement.name, ELEMENTS.map(item => item.name)),
+        detail: `${quizElement.symbol} stands for ${quizElement.name}, element ${quizElement.atomicNumber}.`,
+        element: quizElement,
+      };
+    }
+
+    // --- DOM Elements ---
+    const searchInput = document.getElementById('search-input');
+    const resetBtn = document.getElementById('reset-btn');
+    const headerMatchCount = document.getElementById('header-match-count');
+    const filterMatchCount = document.getElementById('filter-match-count');
+    const phaseFiltersContainer = document.getElementById('phase-filters');
+    const categoryFiltersContainer = document.getElementById('category-filters');
+    const periodicTable = document.getElementById('periodic-table');
+    const modalContainer = document.getElementById('modal-container');
+
+    // --- Initialize UI ---
+    function initFilters() {
+      // Phase filters
+      phaseFiltersContainer.innerHTML = PHASE_OPTIONS.map(phase => `
+        <button
+          onclick="setPhaseFilter('${phase}')"
+          id="phase-btn-${phase}"
+          class="rounded-full border px-3 py-2 font-medium transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-cyan-300/10"
+          type="button"
+        >
+          ${getPhaseLabel(phase)}
+        </button>
+      `).join('');
+
+      // Category filters
+      const allBtnHTML = `
+        <button
+          onclick="setCategoryFilter('all')"
+          id="category-btn-all"
+          class="rounded-full border px-3 py-2 text-sm font-semibold transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-cyan-300/10"
+          type="button"
+        >
+          All categories
+        </button>`;
+      
+      const catBtnsHTML = CATEGORY_ORDER.map(cat => {
+        const meta = CATEGORY_META[cat];
+        return `
+          <button
+            onclick="setCategoryFilter('${cat}')"
+            id="category-btn-${cat.replace(/\s+/g, '-')}"
+            class="rounded-full border px-3 py-2 text-sm font-semibold transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-cyan-300/10"
+            type="button"
+          >
+            <span class="mr-2 inline-block h-2.5 w-2.5 rounded-full" style="background: ${meta.bg}"></span>
+            ${meta.label}
+          </button>
+        `;
+      }).join('');
+      
+      categoryFiltersContainer.innerHTML = allBtnHTML + catBtnsHTML;
+    }
+
+    function initTable() {
+      // Grid Column headers
+      for (let i = 1; i <= 18; i++) {
+        const colHeader = document.createElement('div');
+        colHeader.className = "flex items-center justify-center text-xs font-bold text-slate-500";
+        colHeader.style.gridColumn = i;
+        colHeader.style.gridRow = 1;
+        colHeader.textContent = i;
+        periodicTable.appendChild(colHeader);
+      }
+      
+      // Lanthanides & Actinides Labels
+      const lanthLabel = document.createElement('div');
+      lanthLabel.className = "flex items-center justify-end pr-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500";
+      lanthLabel.style.gridColumn = "1 / span 3";
+      lanthLabel.style.gridRow = "9";
+      lanthLabel.textContent = "Lanthanides";
+      periodicTable.appendChild(lanthLabel);
+      
+      const actinLabel = document.createElement('div');
+      actinLabel.className = "flex items-center justify-end pr-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500";
+      actinLabel.style.gridColumn = "1 / span 3";
+      actinLabel.style.gridRow = "10";
+      actinLabel.textContent = "Actinides";
+      periodicTable.appendChild(actinLabel);
+
+      // Elements
+      ELEMENTS.forEach(item => {
+        const meta = CATEGORY_META[item.category];
+        const btn = document.createElement('button');
+        btn.className = "periodic-tile group relative overflow-hidden rounded-2xl border p-2 text-left shadow-lg shadow-slate-950/10 outline-none transition focus-visible:ring-4 focus-visible:ring-cyan-300/30 disabled:cursor-not-allowed";
+        btn.style.gridColumn = item.x;
+        btn.style.gridRow = item.y + 1;
+        btn.style.background = `linear-gradient(145deg, ${meta.bg}, rgba(15, 23, 42, 0.78))`;
+        btn.style.color = meta.text;
+        btn.style.animationDelay = `${Math.min(item.atomicNumber * 8, 680)}ms`;
+        btn.setAttribute('aria-label', `Open ${item.name}, atomic number ${item.atomicNumber}`);
+        
+        btn.innerHTML = `
+          <span class="absolute right-2 top-1.5 text-[0.62rem] font-bold opacity-75">${item.atomicNumber}</span>
+          <span class="block text-2xl font-black leading-none tracking-tight">${item.symbol}</span>
+          <span class="mt-1 block truncate text-[0.68rem] font-semibold leading-tight opacity-95">${item.name}</span>
+          <span class="mt-1 block text-[0.58rem] font-medium opacity-75">${item.atomicMass}</span>
+        `;
+        
+        btn.onclick = () => openModal(item);
+        tileElements[item.atomicNumber] = btn;
+        periodicTable.appendChild(btn);
+      });
+    }
+
+    // --- Updates & Rendering ---
+    function updateUI() {
+      // 1. Calculate matches
+      let matches = 0;
+      const normalizedQuery = state.query.trim().toLowerCase();
+      
+      ELEMENTS.forEach(item => {
+        const categoryMatch = state.categoryFilter === "all" || item.category === state.categoryFilter;
+        const phaseMatch = state.phaseFilter === "all" || getPhase(item.symbol) === state.phaseFilter;
+        const searchMatch = normalizedQuery.length === 0 || 
+                            item.name.toLowerCase().includes(normalizedQuery) ||
+                            item.symbol.toLowerCase().includes(normalizedQuery) ||
+                            String(item.atomicNumber).includes(normalizedQuery);
+                            
+        const isMatch = categoryMatch && phaseMatch && searchMatch;
+        const isSelected = state.selectedElement && state.selectedElement.atomicNumber === item.atomicNumber;
+        const meta = CATEGORY_META[item.category];
+        const btn = tileElements[item.atomicNumber];
+        
+        if (isMatch) matches++;
+        
+        btn.disabled = !isMatch;
+        btn.style.opacity = isMatch ? '1' : '0.16';
+        btn.style.filter = isMatch ? 'none' : 'grayscale(0.85)';
+        btn.style.borderColor = isSelected ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.16)";
+        btn.style.boxShadow = isSelected ? `0 0 0 2px ${meta.bg}, 0 18px 50px rgba(15,23,42,0.45)` : "none";
+      });
+
+      // 2. Update texts and buttons
+      headerMatchCount.textContent = matches;
+      filterMatchCount.textContent = matches;
+      
+      const hasActiveFilters = state.query.trim().length > 0 || state.categoryFilter !== "all" || state.phaseFilter !== "all";
+      resetBtn.disabled = !hasActiveFilters;
+
+      // 3. Update filter button styles
+      PHASE_OPTIONS.forEach(phase => {
+        const isActive = state.phaseFilter === phase;
+        const btn = document.getElementById(`phase-btn-${phase}`);
+        btn.setAttribute('aria-pressed', isActive);
+        btn.style.borderColor = isActive ? "rgba(103, 232, 249, 0.75)" : "rgba(255,255,255,0.12)";
+        btn.style.background = isActive ? "rgba(8, 145, 178, 0.22)" : "rgba(15, 23, 42, 0.48)";
+        btn.style.color = isActive ? "#ecfeff" : "#cbd5e1";
+      });
+
+      const allCatBtn = document.getElementById('category-btn-all');
+      const isAllCat = state.categoryFilter === "all";
+      allCatBtn.setAttribute('aria-pressed', isAllCat);
+      allCatBtn.style.borderColor = isAllCat ? "rgba(103, 232, 249, 0.72)" : "rgba(255,255,255,0.12)";
+      allCatBtn.style.background = isAllCat ? "rgba(8, 145, 178, 0.22)" : "rgba(15, 23, 42, 0.48)";
+      allCatBtn.style.color = isAllCat ? "#ecfeff" : "#cbd5e1";
+
+      CATEGORY_ORDER.forEach(cat => {
+        const isActive = state.categoryFilter === cat;
+        const meta = CATEGORY_META[cat];
+        const btn = document.getElementById(`category-btn-${cat.replace(/\s+/g, '-')}`);
+        btn.setAttribute('aria-pressed', isActive);
+        btn.style.borderColor = isActive ? meta.bg : "rgba(255,255,255,0.12)";
+        btn.style.background = isActive ? meta.soft : "rgba(15, 23, 42, 0.48)";
+        btn.style.color = isActive ? "#ffffff" : "#cbd5e1";
+      });
+    }
+
+    function renderQuiz() {
+      const qz = state.quiz;
+      const accuracy = qz.asked === 0 ? 0 : Math.round((qz.score / qz.asked) * 100);
+      
+      const choicesHTML = qz.question.choices.map(choice => {
+        const isSelected = qz.selectedAnswer === choice;
+        const isCorrect = choice === qz.question.answer;
+        const result = qz.selectedAnswer ? (isCorrect ? "correct" : isSelected ? "wrong" : "idle") : "idle";
+        
+        const borderColor = result === "correct" ? "rgba(74, 222, 128, 0.7)" : result === "wrong" ? "rgba(248, 113, 113, 0.7)" : "rgba(255,255,255,0.1)";
+        const background = result === "correct" ? "rgba(34, 197, 94, 0.16)" : result === "wrong" ? "rgba(239, 68, 68, 0.16)" : "rgba(255,255,255,0.04)";
+        const color = result === "correct" ? "#bbf7d0" : result === "wrong" ? "#fecaca" : "#e2e8f0";
+
+        // Escape quotes to be safe in HTML onclick
+        const escapedChoice = choice.replace(/'/g, "\\'");
+        
+        return `
+          <button
+            class="quiz-answer rounded-2xl border px-4 py-3 text-left text-sm font-bold transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-cyan-300/10 disabled:hover:translate-y-0"
+            data-result="${result}"
+            type="button"
+            ${qz.selectedAnswer ? 'disabled' : ''}
+            style="border-color: ${borderColor}; background: ${background}; color: ${color};"
+            onclick="chooseAnswer('${escapedChoice}')"
+          >
+            ${choice}
+          </button>
+        `;
+      }).join('');
+
+      const detailHTML = qz.selectedAnswer ? `
+        <div class="mt-4 space-y-3">
+          <p class="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm leading-6 text-slate-300">${qz.question.detail}</p>
+          <div class="flex flex-wrap gap-2">
+            <button class="rounded-full bg-cyan-300 px-4 py-2 text-sm font-black text-slate-950 transition hover:bg-cyan-200" type="button" onclick="nextQuestion()">
+              Next question
+            </button>
+            <button class="rounded-full border border-white/10 px-4 py-2 text-sm font-bold text-slate-200 transition hover:border-white/30 hover:text-white" type="button" onclick="openModalFromQuiz()">
+              Open element
+            </button>
+          </div>
+        </div>
+      ` : '';
+
+      document.getElementById('quiz-container').innerHTML = `
+        <aside class="quiz-panel h-fit rounded-3xl border border-white/10 bg-white/[0.05] p-5 shadow-2xl shadow-slate-950/30 backdrop-blur xl:sticky xl:top-5" aria-label="Element quiz">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-sm font-semibold uppercase tracking-[0.34em] text-fuchsia-200/80">Element quiz</p>
+              <h2 class="mt-2 text-2xl font-black text-white">Quick recall</h2>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-right text-sm">
+              <p class="font-black text-white">${qz.score}/${qz.asked}</p>
+              <p class="text-xs text-slate-500">${accuracy}%</p>
+            </div>
+          </div>
+          <p class="mt-4 text-sm leading-6 text-slate-400">Answer symbol, name, number, and category prompts. Open the element after each question to study the full modal.</p>
+          <div class="mt-6 rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+            <p class="text-base font-bold leading-7 text-white">${qz.question.prompt}</p>
+            <div class="mt-4 grid gap-2">
+              ${choicesHTML}
+            </div>
+            ${detailHTML}
+          </div>
+          <div class="mt-4 flex items-center justify-between text-sm text-slate-400">
+            <span>Current streak: ${qz.streak}</span>
+            <button class="font-semibold text-fuchsia-200 transition hover:text-fuchsia-100" type="button" onclick="restartQuiz()">
+              Restart
+            </button>
+          </div>
+        </aside>
+      `;
+    }
+
+    // --- Actions ---
+    function setCategoryFilter(cat) {
+      if (state.categoryFilter === cat && cat !== 'all') {
+        state.categoryFilter = 'all'; // toggle off
+      } else {
+        state.categoryFilter = cat;
+      }
+      updateUI();
+    }
+
+    function setPhaseFilter(phase) {
+      state.phaseFilter = phase;
+      updateUI();
+    }
+
+    function chooseAnswer(choice) {
+      if (state.quiz.selectedAnswer) return;
+      
+      state.quiz.selectedAnswer = choice;
+      state.quiz.asked += 1;
+      
+      if (choice === state.quiz.question.answer) {
+        state.quiz.score += 1;
+        state.quiz.streak += 1;
+      } else {
+        state.quiz.streak = 0;
+      }
+      renderQuiz();
+    }
+
+    function nextQuestion() {
+      state.quiz.question = buildQuizQuestion();
+      state.quiz.selectedAnswer = null;
+      renderQuiz();
+    }
+
+    function restartQuiz() {
+      state.quiz.question = buildQuizQuestion();
+      state.quiz.selectedAnswer = null;
+      state.quiz.score = 0;
+      state.quiz.asked = 0;
+      state.quiz.streak = 0;
+      renderQuiz();
+    }
+
+    function openModal(elementData) {
+      state.selectedElement = elementData;
+      updateUI(); // to show border highlight
+
+      const meta = CATEGORY_META[elementData.category];
+      const phase = getPhase(elementData.symbol);
+
+      document.getElementById('modal-left').style.background = `linear-gradient(150deg, ${meta.bg}, #020617)`;
+      document.getElementById('modal-atomic-number').textContent = `Element ${elementData.atomicNumber}`;
+      document.getElementById('modal-symbol').textContent = elementData.symbol;
+      document.getElementById('modal-symbol').style.color = meta.text;
+      document.getElementById('modal-title').textContent = elementData.name;
+      document.getElementById('modal-description').textContent = meta.description;
+      
+      document.getElementById('modal-category-label').textContent = meta.label;
+      document.getElementById('modal-mass').textContent = `${elementData.atomicMass} u`;
+      document.getElementById('modal-group').textContent = elementData.group ? String(elementData.group) : "F-block";
+      document.getElementById('modal-period').textContent = String(elementData.period);
+      document.getElementById('modal-phase').textContent = phase;
+      document.getElementById('modal-category').textContent = meta.label;
+      document.getElementById('modal-position').textContent = `Column ${elementData.x}, row ${elementData.y}`;
+      document.getElementById('modal-note').textContent = getElementNote(elementData);
+
+      modalContainer.classList.remove('hidden');
+      modalContainer.classList.add('flex');
+    }
+
+    function closeModal() {
+      state.selectedElement = null;
+      updateUI(); // remove border highlight
+      modalContainer.classList.add('hidden');
+      modalContainer.classList.remove('flex');
+    }
+
+    function openModalFromQuiz() {
+      if(state.quiz.question && state.quiz.question.element) {
+        openModal(state.quiz.question.element);
+      }
+    }
+
+    // --- Event Listeners ---
+    searchInput.addEventListener('input', (e) => {
+      state.query = e.target.value;
+      updateUI();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      state.query = "";
+      searchInput.value = "";
+      state.categoryFilter = "all";
+      state.phaseFilter = "all";
+      updateUI();
+    });
+
+    modalContainer.addEventListener('mousedown', (e) => {
+      if (e.target === modalContainer) closeModal();
+    });
+
+    document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === "Escape" && !modalContainer.classList.contains('hidden')) {
+        closeModal();
+      }
+    });
+
+    // --- App Boot ---
+    state.quiz.question = buildQuizQuestion();
+    initFilters();
+    initTable();
+    updateUI();
+    renderQuiz();
+
+  </script>
+</body>
+</html>
